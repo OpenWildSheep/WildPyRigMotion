@@ -27,7 +27,7 @@ struct Deleter
 };
 
 
-PYBIND11_MODULE(riglogic, rlpy)
+PYBIND11_MODULE(PyRigLogic, rlpy)
 {
     rlpy.doc() = "pybind11 for RigLogic";
 
