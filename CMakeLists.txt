@@ -42,6 +42,7 @@ target_compile_definitions(RigLogic PRIVATE RL_BUILD_WITH_YZX_ROTATION_ORDER)
 target_compile_definitions(RigLogic PRIVATE RL_BUILD_WITH_ZXY_ROTATION_ORDER)
 target_compile_definitions(RigLogic PRIVATE RL_BUILD_WITH_ZYX_ROTATION_ORDER)
 target_compile_definitions(RigLogic PUBLIC DNA_BUILD_WITH_JSON_SUPPORT)
+target_compile_definitions(RigLogic PUBLIC _SILENCE_STDEXT_ARR_ITERS_DEPRECATION_WARNING)
 
 file(GLOB PYRIGLOGIC_SOURCES "PyRigLogic/PyRigLogic.cpp")
 add_library(PyRigLogic SHARED ${PYRIGLOGIC_SOURCES})

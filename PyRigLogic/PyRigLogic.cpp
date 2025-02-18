@@ -4,6 +4,8 @@
 
 #include "dna/JSONStreamWriter.h"
 #include "dna/JSONStreamReader.h"
+#include "dna/BinaryStreamWriter.h"
+#include "dna/BinaryStreamReader.h"
 
 #pragma warning(push, 0)
 #include "pybind11/pybind11.h"
@@ -13,10 +15,6 @@
 #pragma warning(pop)
 
 using namespace pybind11::literals;
-
-using namespace rl4;
-using namespace pma;
-// using namespace dna;
 
 namespace py = pybind11;
 
@@ -44,32 +42,52 @@ PYBIND11_MODULE(PyRigLogic, rlpy)
 {
     rlpy.doc() = "pybind11 for RigLogic";
 
-    using ConstArrayViewFloat = ConstArrayView<float>;
-    py::class_<ConstArrayViewFloat>(rlpy, "ArrayViewConstFloat", py::buffer_protocol())
-        .def(
-            "__getitem__",
-            [](const ConstArrayViewFloat& self, std::size_t i)
-            {
-                if (i >= self.size())
-                    throw py::index_error();
-                return self[i];
-            })
-        .def("__len__", &ConstArrayViewFloat::size)
-        .def(
-            "data",
-            [](ConstArrayViewFloat& self)
-            { return py::array_t<float const>({self.size()}, {sizeof(float)}, self.data()); },
-            py::return_value_policy::reference_internal);
-
-    py::class_<sc::StatusCode>(rlpy, "StatusCode")
-        .def_readwrite("code", &sc::StatusCode::code)
-        .def_readwrite("message", &sc::StatusCode::message);
+    py::class_<sc::StatusCode>(rlpy, "StatusCode").def_readwrite("code", &sc::StatusCode::code).def_readwrite("message", &sc::StatusCode::message);
 
     py::class_<sc::Status>(rlpy, "Status")
         .def_static("isOk", &sc::Status::isOk)
         .def_static("get", &sc::Status::get)
         .def_static("getHook", &sc::Status::getHook)
         .def_static("setHook", &sc::Status::setHook);
+
+    // ************************************ PMA *********************************************************
+
+    py::class_<pma::MemoryResource>(rlpy, "MemoryResource")
+        .def("allocate", &pma::MemoryResource::allocate)
+        .def("deallocate", &pma::MemoryResource::deallocate);
+
+    py::class_<pma::DefaultMemoryResource, pma::MemoryResource>(rlpy, "DefaultMemoryResource").def(py::init<>());
+
+    // ************************************ TRIO ********************************************************
+
+    auto pyAccessMode = py::enum_<trio::AccessMode>(rlpy, "AccessMode")
+                            .value("Read", trio::AccessMode::Read)
+                            .value("Write", trio::AccessMode::Write)
+                            .value("ReadWrite", trio::AccessMode::ReadWrite)
+                            .export_values();
+
+    auto pyOpenMode =
+        py::enum_<trio::OpenMode>(rlpy, "OpenMode").value("Binary", trio::OpenMode::Binary).value("Text", trio::OpenMode::Text).export_values();
+
+    py::class_<trio::Openable, std::unique_ptr<trio::Openable, py::nodelete>>(rlpy, "Openable").def("open", &trio::Openable::open);
+    py::class_<trio::Closeable, std::unique_ptr<trio::Closeable, py::nodelete>>(rlpy, "Closeable").def("close", &trio::Closeable::close);
+    py::class_<trio::Controllable, trio::Openable, trio::Closeable, std::unique_ptr<trio::Controllable, py::nodelete>>(rlpy, "Controllable");
+    py::class_<trio::Readable, std::unique_ptr<trio::Readable, py::nodelete>>(rlpy, "Readable")
+        .def("read", static_cast<std::size_t (trio::Readable::*)(char*, std::size_t)>(&trio::Readable::read))
+        .def("read", static_cast<std::size_t (trio::Readable::*)(trio::Writable*, std::size_t)>(&trio::Readable::read));
+    py::class_<trio::Writable, std::unique_ptr<trio::Writable, py::nodelete>>(rlpy, "Writable")
+        .def("write", static_cast<std::size_t (trio::Writable::*)(char const*, std::size_t)>(&trio::Writable::write))
+        .def("write", static_cast<std::size_t (trio::Writable::*)(trio::Readable*, std::size_t)>(&trio::Writable::write));
+    py::class_<trio::Seekable, std::unique_ptr<trio::Seekable, py::nodelete>>(rlpy, "Seekable").def("seek", &trio::Seekable::seek);
+    py::class_<trio::Bounded, std::unique_ptr<trio::Bounded, py::nodelete>>(rlpy, "Bounded").def("size", &trio::Bounded::size);
+
+    auto pyBoundedIOStream =
+        py::class_<trio::BoundedIOStream, trio::Controllable, trio::Readable, trio::Writable, trio::Seekable, trio::Bounded>(
+            rlpy, "BoundedIOStream");
+    pyBoundedIOStream.attr("AccessMode") = pyAccessMode;
+    pyBoundedIOStream.attr("OpenMode") = pyOpenMode;
+
+    // ************************************ DNA *********************************************************
 
     py::enum_<dna::DataLayer>(rlpy, "DataLayer")
         .value("Descriptor", dna::DataLayer::Descriptor)
@@ -89,18 +107,15 @@ PYBIND11_MODULE(PyRigLogic, rlpy)
         .value("Ignore", dna::UnknownLayerPolicy::Ignore)
         .export_values();
 
-    py::class_<dna::HeaderReader, std::unique_ptr<dna::HeaderReader, py::nodelete>>(
-        rlpy, "HeaderReader")
+    py::class_<dna::HeaderReader, std::unique_ptr<dna::HeaderReader, py::nodelete>>(rlpy, "HeaderReader")
         .def("getFileFormatGeneration", &dna::HeaderReader::getFileFormatGeneration)
         .def("getFileFormatVersion", &dna::HeaderReader::getFileFormatVersion);
 
-    py::class_<dna::HeaderWriter, std::unique_ptr<dna::HeaderWriter, py::nodelete>>(
-        rlpy, "HeaderWriter")
+    py::class_<dna::HeaderWriter, std::unique_ptr<dna::HeaderWriter, py::nodelete>>(rlpy, "HeaderWriter")
         .def("setFileFormatGeneration", &dna::HeaderWriter::setFileFormatGeneration)
         .def("setFileFormatVersion", &dna::HeaderWriter::setFileFormatVersion);
 
-    py::class_<dna::DescriptorReader, dna::HeaderReader, std::unique_ptr<dna::DescriptorReader, py::nodelete>>(
-        rlpy, "DescriptorReader")
+    py::class_<dna::DescriptorReader, dna::HeaderReader, std::unique_ptr<dna::DescriptorReader, py::nodelete>>(rlpy, "DescriptorReader")
         .def("getName", &dna::DescriptorReader::getName)
         .def("getArchetype", &dna::DescriptorReader::getArchetype)
         .def("getGender", &dna::DescriptorReader::getGender)
@@ -116,8 +131,7 @@ PYBIND11_MODULE(PyRigLogic, rlpy)
         .def("getDBComplexity", &dna::DescriptorReader::getDBComplexity)
         .def("getDBName", &dna::DescriptorReader::getDBName);
 
-    py::class_<dna::DescriptorWriter, dna::HeaderWriter, std::unique_ptr<dna::DescriptorWriter, py::nodelete>>(
-        rlpy, "DescriptorWriter")
+    py::class_<dna::DescriptorWriter, dna::HeaderWriter, std::unique_ptr<dna::DescriptorWriter, py::nodelete>>(rlpy, "DescriptorWriter")
         .def("setName", &dna::DescriptorWriter::setName)
         .def("setArchetype", &dna::DescriptorWriter::setArchetype)
         .def("setGender", &dna::DescriptorWriter::setGender)
@@ -132,8 +146,7 @@ PYBIND11_MODULE(PyRigLogic, rlpy)
         .def("setDBComplexity", &dna::DescriptorWriter::setDBComplexity)
         .def("setDBName", &dna::DescriptorWriter::setDBName);
 
-    py::class_<dna::DefinitionReader, dna::DescriptorReader, std::unique_ptr<dna::DefinitionReader, py::nodelete>>(
-        rlpy, "DefinitionReader")
+    py::class_<dna::DefinitionReader, dna::DescriptorReader, std::unique_ptr<dna::DefinitionReader, py::nodelete>>(rlpy, "DefinitionReader")
         .def("getGUIControlCount", &dna::DefinitionReader::getGUIControlCount)
         .def("getGUIControlName", &dna::DefinitionReader::getGUIControlName)
         .def("getRawControlCount", &dna::DefinitionReader::getRawControlCount)
@@ -145,12 +158,8 @@ PYBIND11_MODULE(PyRigLogic, rlpy)
         .def("getJointParentIndex", &dna::DefinitionReader::getJointParentIndex)
         .def("getBlendShapeChannelCount", &dna::DefinitionReader::getBlendShapeChannelCount)
         .def("getBlendShapeChannelName", &dna::DefinitionReader::getBlendShapeChannelName)
-        .def(
-            "getBlendShapeChannelIndexListCount",
-            &dna::DefinitionReader::getBlendShapeChannelIndexListCount)
-        .def(
-            "getBlendShapeChannelIndicesForLOD",
-            &dna::DefinitionReader::getBlendShapeChannelIndicesForLOD)
+        .def("getBlendShapeChannelIndexListCount", &dna::DefinitionReader::getBlendShapeChannelIndexListCount)
+        .def("getBlendShapeChannelIndicesForLOD", &dna::DefinitionReader::getBlendShapeChannelIndicesForLOD)
         .def("getAnimatedMapCount", &dna::DefinitionReader::getAnimatedMapCount)
         .def("getAnimatedMapName", &dna::DefinitionReader::getAnimatedMapName)
         .def("getAnimatedMapIndexListCount", &dna::DefinitionReader::getAnimatedMapIndexListCount)
@@ -159,13 +168,9 @@ PYBIND11_MODULE(PyRigLogic, rlpy)
         .def("getMeshName", &dna::DefinitionReader::getMeshName)
         .def("getMeshIndexListCount", &dna::DefinitionReader::getMeshIndexListCount)
         .def("getMeshIndicesForLOD", &dna::DefinitionReader::getMeshIndicesForLOD)
-        .def(
-            "getMeshBlendShapeChannelMappingCount",
-            &dna::DefinitionReader::getMeshBlendShapeChannelMappingCount)
+        .def("getMeshBlendShapeChannelMappingCount", &dna::DefinitionReader::getMeshBlendShapeChannelMappingCount)
         .def("getMeshBlendShapeChannelMapping", &dna::DefinitionReader::getMeshBlendShapeChannelMapping)
-        .def(
-            "getMeshBlendShapeChannelMappingIndicesForLOD",
-            &dna::DefinitionReader::getMeshBlendShapeChannelMappingIndicesForLOD)
+        .def("getMeshBlendShapeChannelMappingIndicesForLOD", &dna::DefinitionReader::getMeshBlendShapeChannelMappingIndicesForLOD)
         .def("getNeutralJointTranslation", &dna::DefinitionReader::getNeutralJointTranslation)
         .def("getNeutralJointTranslationXs", &dna::DefinitionReader::getNeutralJointTranslationXs)
         .def("getNeutralJointTranslationYs", &dna::DefinitionReader::getNeutralJointTranslationYs)
@@ -175,8 +180,7 @@ PYBIND11_MODULE(PyRigLogic, rlpy)
         .def("getNeutralJointRotationYs", &dna::DefinitionReader::getNeutralJointRotationYs)
         .def("getNeutralJointRotationZs", &dna::DefinitionReader::getNeutralJointRotationZs);
 
-    py::class_<dna::DefinitionWriter, dna::DescriptorWriter, std::unique_ptr<dna::DefinitionWriter, py::nodelete>>(
-        rlpy, "DefinitionWriter")
+    py::class_<dna::DefinitionWriter, dna::DescriptorWriter, std::unique_ptr<dna::DefinitionWriter, py::nodelete>>(rlpy, "DefinitionWriter")
         .def("clearGUIControlNames", &dna::DefinitionWriter::clearGUIControlNames)
         .def("setGUIControlName", &dna::DefinitionWriter::setGUIControlName)
         .def("clearRawControlNames", &dna::DefinitionWriter::clearRawControlNames)
@@ -191,9 +195,7 @@ PYBIND11_MODULE(PyRigLogic, rlpy)
         .def("setBlendShapeChannelName", &dna::DefinitionWriter::setBlendShapeChannelName)
         .def("clearBlendShapeChannelIndices", &dna::DefinitionWriter::clearBlendShapeChannelIndices)
         .def("setBlendShapeChannelIndices", &dna::DefinitionWriter::setBlendShapeChannelIndices)
-        .def(
-            "clearLODBlendShapeChannelMappings",
-            &dna::DefinitionWriter::clearLODBlendShapeChannelMappings)
+        .def("clearLODBlendShapeChannelMappings", &dna::DefinitionWriter::clearLODBlendShapeChannelMappings)
         .def("setLODBlendShapeChannelMapping", &dna::DefinitionWriter::setLODBlendShapeChannelMapping)
         .def("clearAnimatedMapNames", &dna::DefinitionWriter::clearAnimatedMapNames)
         .def("setAnimatedMapName", &dna::DefinitionWriter::setAnimatedMapName)
@@ -207,16 +209,13 @@ PYBIND11_MODULE(PyRigLogic, rlpy)
         .def("setMeshIndices", &dna::DefinitionWriter::setMeshIndices)
         .def("clearLODMeshMappings", &dna::DefinitionWriter::clearLODMeshMappings)
         .def("setLODMeshMapping", &dna::DefinitionWriter::setLODMeshMapping)
-        .def(
-            "clearMeshBlendShapeChannelMappings",
-            &dna::DefinitionWriter::clearMeshBlendShapeChannelMappings)
+        .def("clearMeshBlendShapeChannelMappings", &dna::DefinitionWriter::clearMeshBlendShapeChannelMappings)
         .def("setMeshBlendShapeChannelMapping", &dna::DefinitionWriter::setMeshBlendShapeChannelMapping)
         .def("setJointHierarchy", &dna::DefinitionWriter::setJointHierarchy)
         .def("setNeutralJointTranslations", &dna::DefinitionWriter::setNeutralJointTranslations)
         .def("setNeutralJointRotations", &dna::DefinitionWriter::setNeutralJointRotations);
 
-    py::class_<dna::BehaviorReader, dna::DefinitionReader, std::unique_ptr<dna::BehaviorReader, py::nodelete>>(
-        rlpy, "BehaviorReader")
+    py::class_<dna::BehaviorReader, dna::DefinitionReader, std::unique_ptr<dna::BehaviorReader, py::nodelete>>(rlpy, "BehaviorReader")
         .def("getGUIToRawInputIndices", &dna::BehaviorReader::getGUIToRawInputIndices)
         .def("getGUIToRawOutputIndices", &dna::BehaviorReader::getGUIToRawOutputIndices)
         .def("getGUIToRawFromValues", &dna::BehaviorReader::getGUIToRawFromValues)
@@ -247,8 +246,7 @@ PYBIND11_MODULE(PyRigLogic, rlpy)
         .def("getAnimatedMapSlopeValues", &dna::BehaviorReader::getAnimatedMapSlopeValues)
         .def("getAnimatedMapCutValues", &dna::BehaviorReader::getAnimatedMapCutValues);
 
-    py::class_<dna::BehaviorWriter, dna::DefinitionWriter, std::unique_ptr<dna::BehaviorWriter, py::nodelete>>(
-        rlpy, "BehaviorWriter")
+    py::class_<dna::BehaviorWriter, dna::DefinitionWriter, std::unique_ptr<dna::BehaviorWriter, py::nodelete>>(rlpy, "BehaviorWriter")
         .def("setGUIToRawInputIndices", &dna::BehaviorWriter::setGUIToRawInputIndices)
         .def("setGUIToRawOutputIndices", &dna::BehaviorWriter::setGUIToRawOutputIndices)
         .def("setGUIToRawFromValues", &dna::BehaviorWriter::setGUIToRawFromValues)
@@ -279,17 +277,12 @@ PYBIND11_MODULE(PyRigLogic, rlpy)
         .def("setAnimatedMapSlopeValues", &dna::BehaviorWriter::setAnimatedMapSlopeValues)
         .def("setAnimatedMapCutValues", &dna::BehaviorWriter::setAnimatedMapCutValues);
 
-    py::class_<dna::RBFBehaviorReader, dna::BehaviorReader, std::unique_ptr<dna::RBFBehaviorReader, py::nodelete>>(
-        rlpy, "RBFBehaviorReader")
+    py::class_<dna::RBFBehaviorReader, dna::BehaviorReader, std::unique_ptr<dna::RBFBehaviorReader, py::nodelete>>(rlpy, "RBFBehaviorReader")
         .def("getRBFPoseCount", &dna::RBFBehaviorReader::getRBFPoseCount)
         .def("getRBFPoseName", &dna::RBFBehaviorReader::getRBFPoseName)
         .def("getRBFPoseJointOutputIndices", &dna::RBFBehaviorReader::getRBFPoseJointOutputIndices)
-        .def(
-            "getRBFPoseBlendShapeChannelOutputIndices",
-            &dna::RBFBehaviorReader::getRBFPoseBlendShapeChannelOutputIndices)
-        .def(
-            "getRBFPoseAnimatedMapOutputIndices",
-            &dna::RBFBehaviorReader::getRBFPoseAnimatedMapOutputIndices)
+        .def("getRBFPoseBlendShapeChannelOutputIndices", &dna::RBFBehaviorReader::getRBFPoseBlendShapeChannelOutputIndices)
+        .def("getRBFPoseAnimatedMapOutputIndices", &dna::RBFBehaviorReader::getRBFPoseAnimatedMapOutputIndices)
         .def("getRBFPoseJointOutputValues", &dna::RBFBehaviorReader::getRBFPoseJointOutputValues)
         .def("getRBFPoseScale", &dna::RBFBehaviorReader::getRBFPoseScale)
         .def("getRBFPoseControlCount", &dna::RBFBehaviorReader::getRBFPoseControlCount)
@@ -312,8 +305,7 @@ PYBIND11_MODULE(PyRigLogic, rlpy)
         .def("getRBFSolverFunctionType", &dna::RBFBehaviorReader::getRBFSolverFunctionType)
         .def("getRBFSolverTwistAxis", &dna::RBFBehaviorReader::getRBFSolverTwistAxis);
 
-    py::class_<dna::RBFBehaviorWriter, dna::BehaviorWriter, std::unique_ptr<dna::RBFBehaviorWriter, py::nodelete>>(
-        rlpy, "RBFBehaviorWriter")
+    py::class_<dna::RBFBehaviorWriter, dna::BehaviorWriter, std::unique_ptr<dna::RBFBehaviorWriter, py::nodelete>>(rlpy, "RBFBehaviorWriter")
         .def("clearRBFPoses", &dna::RBFBehaviorWriter::clearRBFPoses)
         .def("setRBFPoseName", &dna::RBFBehaviorWriter::setRBFPoseName)
         .def("setRBFPoseScale", &dna::RBFBehaviorWriter::setRBFPoseScale)
@@ -339,8 +331,7 @@ PYBIND11_MODULE(PyRigLogic, rlpy)
         .def("setRBFSolverFunctionType", &dna::RBFBehaviorWriter::setRBFSolverFunctionType)
         .def("setRBFSolverTwistAxis", &dna::RBFBehaviorWriter::setRBFSolverTwistAxis);
 
-    py::class_<dna::GeometryReader, dna::DefinitionReader, std::unique_ptr<dna::GeometryReader, py::nodelete>>(
-        rlpy, "GeometryReader")
+    py::class_<dna::GeometryReader, dna::DefinitionReader, std::unique_ptr<dna::GeometryReader, py::nodelete>>(rlpy, "GeometryReader")
         .def("getVertexPositionCount", &dna::GeometryReader::getVertexPositionCount)
         .def("getVertexPosition", &dna::GeometryReader::getVertexPosition)
         .def("getVertexPositionXs", &dna::GeometryReader::getVertexPositionXs)
@@ -358,9 +349,7 @@ PYBIND11_MODULE(PyRigLogic, rlpy)
         .def("getVertexLayoutCount", &dna::GeometryReader::getVertexLayoutCount)
         .def("getVertexLayout", &dna::GeometryReader::getVertexLayout)
         .def("getVertexLayoutPositionIndices", &dna::GeometryReader::getVertexLayoutPositionIndices)
-        .def(
-            "getVertexLayoutTextureCoordinateIndices",
-            &dna::GeometryReader::getVertexLayoutTextureCoordinateIndices)
+        .def("getVertexLayoutTextureCoordinateIndices", &dna::GeometryReader::getVertexLayoutTextureCoordinateIndices)
         .def("getVertexLayoutNormalIndices", &dna::GeometryReader::getVertexLayoutNormalIndices)
         .def("getFaceCount", &dna::GeometryReader::getFaceCount)
         .def("getFaceVertexLayoutIndices", &dna::GeometryReader::getFaceVertexLayoutIndices)
@@ -374,12 +363,9 @@ PYBIND11_MODULE(PyRigLogic, rlpy)
         .def("getBlendShapeTargetDeltaXs", &dna::GeometryReader::getBlendShapeTargetDeltaXs)
         .def("getBlendShapeTargetDeltaYs", &dna::GeometryReader::getBlendShapeTargetDeltaYs)
         .def("getBlendShapeTargetDeltaZs", &dna::GeometryReader::getBlendShapeTargetDeltaZs)
-        .def(
-            "getBlendShapeTargetVertexIndices",
-            &dna::GeometryReader::getBlendShapeTargetVertexIndices);
+        .def("getBlendShapeTargetVertexIndices", &dna::GeometryReader::getBlendShapeTargetVertexIndices);
 
-    py::class_<dna::GeometryWriter, dna::DefinitionWriter, std::unique_ptr<dna::GeometryWriter, py::nodelete>>(
-        rlpy, "GeometryWriter")
+    py::class_<dna::GeometryWriter, dna::DefinitionWriter, std::unique_ptr<dna::GeometryWriter, py::nodelete>>(rlpy, "GeometryWriter")
         .def("clearMeshes", &dna::GeometryWriter::clearMeshes)
         .def("deleteMesh", &dna::GeometryWriter::deleteMesh)
         .def("setVertexPositions", &dna::GeometryWriter::setVertexPositions)
@@ -395,134 +381,72 @@ PYBIND11_MODULE(PyRigLogic, rlpy)
         .def("clearBlendShapeTargets", &dna::GeometryWriter::clearBlendShapeTargets)
         .def("setBlendShapeChannelIndex", &dna::GeometryWriter::setBlendShapeChannelIndex)
         .def("setBlendShapeTargetDeltas", &dna::GeometryWriter::setBlendShapeTargetDeltas)
-        .def(
-            "setBlendShapeTargetVertexIndices",
-            &dna::GeometryWriter::setBlendShapeTargetVertexIndices);
+        .def("setBlendShapeTargetVertexIndices", &dna::GeometryWriter::setBlendShapeTargetVertexIndices);
 
-    py::class_<
-        dna::MachineLearnedBehaviorReader,
-        dna::DefinitionReader,
-        std::unique_ptr<dna::MachineLearnedBehaviorReader, py::nodelete>>(
+    py::class_<dna::MachineLearnedBehaviorReader, dna::DefinitionReader, std::unique_ptr<dna::MachineLearnedBehaviorReader, py::nodelete>>(
         rlpy, "MachineLearnedBehaviorReader")
         .def("getMLControlCount", &dna::MachineLearnedBehaviorReader::getMLControlCount)
         .def("getMLControlName", &dna::MachineLearnedBehaviorReader::getMLControlName)
         .def("getNeuralNetworkCount", &dna::MachineLearnedBehaviorReader::getNeuralNetworkCount)
-        .def(
-            "getNeuralNetworkIndexListCount",
-            &dna::MachineLearnedBehaviorReader::getNeuralNetworkIndexListCount)
-        .def(
-            "getNeuralNetworkIndicesForLOD",
-            &dna::MachineLearnedBehaviorReader::getNeuralNetworkIndicesForLOD)
+        .def("getNeuralNetworkIndexListCount", &dna::MachineLearnedBehaviorReader::getNeuralNetworkIndexListCount)
+        .def("getNeuralNetworkIndicesForLOD", &dna::MachineLearnedBehaviorReader::getNeuralNetworkIndicesForLOD)
         .def("getMeshRegionCount", &dna::MachineLearnedBehaviorReader::getMeshRegionCount)
         .def("getMeshRegionName", &dna::MachineLearnedBehaviorReader::getMeshRegionName)
-        .def(
-            "getNeuralNetworkIndicesForMeshRegion",
-            &dna::MachineLearnedBehaviorReader::getNeuralNetworkIndicesForMeshRegion)
-        .def(
-            "getNeuralNetworkInputIndices",
-            &dna::MachineLearnedBehaviorReader::getNeuralNetworkInputIndices)
-        .def(
-            "getNeuralNetworkOutputIndices",
-            &dna::MachineLearnedBehaviorReader::getNeuralNetworkOutputIndices)
+        .def("getNeuralNetworkIndicesForMeshRegion", &dna::MachineLearnedBehaviorReader::getNeuralNetworkIndicesForMeshRegion)
+        .def("getNeuralNetworkInputIndices", &dna::MachineLearnedBehaviorReader::getNeuralNetworkInputIndices)
+        .def("getNeuralNetworkOutputIndices", &dna::MachineLearnedBehaviorReader::getNeuralNetworkOutputIndices)
         .def("getNeuralNetworkLayerCount", &dna::MachineLearnedBehaviorReader::getNeuralNetworkLayerCount)
-        .def(
-            "getNeuralNetworkLayerActivationFunction",
-            &dna::MachineLearnedBehaviorReader::getNeuralNetworkLayerActivationFunction)
+        .def("getNeuralNetworkLayerActivationFunction", &dna::MachineLearnedBehaviorReader::getNeuralNetworkLayerActivationFunction)
         .def(
             "getNeuralNetworkLayerActivationFunctionParameters",
             &dna::MachineLearnedBehaviorReader::getNeuralNetworkLayerActivationFunctionParameters)
-        .def(
-            "getNeuralNetworkLayerBiases",
-            &dna::MachineLearnedBehaviorReader::getNeuralNetworkLayerBiases)
-        .def(
-            "getNeuralNetworkLayerWeights",
-            &dna::MachineLearnedBehaviorReader::getNeuralNetworkLayerWeights);
+        .def("getNeuralNetworkLayerBiases", &dna::MachineLearnedBehaviorReader::getNeuralNetworkLayerBiases)
+        .def("getNeuralNetworkLayerWeights", &dna::MachineLearnedBehaviorReader::getNeuralNetworkLayerWeights);
 
-    py::class_<
-        dna::MachineLearnedBehaviorWriter,
-        dna::DefinitionWriter,
-        std::unique_ptr<dna::MachineLearnedBehaviorWriter, py::nodelete>>(
+    py::class_<dna::MachineLearnedBehaviorWriter, dna::DefinitionWriter, std::unique_ptr<dna::MachineLearnedBehaviorWriter, py::nodelete>>(
         rlpy, "MachineLearnedBehaviorWriter")
         .def("clearMLControlNames", &dna::MachineLearnedBehaviorWriter::clearMLControlNames)
         .def("setMLControlName", &dna::MachineLearnedBehaviorWriter::setMLControlName)
         .def("clearNeuralNetworks", &dna::MachineLearnedBehaviorWriter::clearNeuralNetworks)
         .def("clearNeuralNetworkIndices", &dna::MachineLearnedBehaviorWriter::clearNeuralNetworkIndices)
         .def("setNeuralNetworkIndices", &dna::MachineLearnedBehaviorWriter::setNeuralNetworkIndices)
-        .def(
-            "clearLODNeuralNetworkMappings",
-            &dna::MachineLearnedBehaviorWriter::clearLODNeuralNetworkMappings)
+        .def("clearLODNeuralNetworkMappings", &dna::MachineLearnedBehaviorWriter::clearLODNeuralNetworkMappings)
         .def("setLODNeuralNetworkMapping", &dna::MachineLearnedBehaviorWriter::setLODNeuralNetworkMapping)
         .def(
             "clearMeshRegionNames",
-            static_cast<void (dna::MachineLearnedBehaviorWriter::*)()>(
-                &dna::MachineLearnedBehaviorWriter::clearMeshRegionNames))
+            static_cast<void (dna::MachineLearnedBehaviorWriter::*)()>(&dna::MachineLearnedBehaviorWriter::clearMeshRegionNames))
         .def(
             "clearMeshRegionNames",
-            static_cast<void (dna::MachineLearnedBehaviorWriter::*)(std::uint16_t)>(
-                &dna::MachineLearnedBehaviorWriter::clearMeshRegionNames))
+            static_cast<void (dna::MachineLearnedBehaviorWriter::*)(std::uint16_t)>(&dna::MachineLearnedBehaviorWriter::clearMeshRegionNames))
         .def("setMeshRegionName", &dna::MachineLearnedBehaviorWriter::setMeshRegionName)
-        .def(
-            "clearNeuralNetworkIndicesPerMeshRegion",
-            &dna::MachineLearnedBehaviorWriter::clearNeuralNetworkIndicesPerMeshRegion)
-        .def(
-            "setNeuralNetworkIndicesForMeshRegion",
-            &dna::MachineLearnedBehaviorWriter::setNeuralNetworkIndicesForMeshRegion)
+        .def("clearNeuralNetworkIndicesPerMeshRegion", &dna::MachineLearnedBehaviorWriter::clearNeuralNetworkIndicesPerMeshRegion)
+        .def("setNeuralNetworkIndicesForMeshRegion", &dna::MachineLearnedBehaviorWriter::setNeuralNetworkIndicesForMeshRegion)
         .def("deleteNeuralNetwork", &dna::MachineLearnedBehaviorWriter::deleteNeuralNetwork)
-        .def(
-            "setNeuralNetworkInputIndices",
-            &dna::MachineLearnedBehaviorWriter::setNeuralNetworkInputIndices)
-        .def(
-            "setNeuralNetworkOutputIndices",
-            &dna::MachineLearnedBehaviorWriter::setNeuralNetworkOutputIndices)
+        .def("setNeuralNetworkInputIndices", &dna::MachineLearnedBehaviorWriter::setNeuralNetworkInputIndices)
+        .def("setNeuralNetworkOutputIndices", &dna::MachineLearnedBehaviorWriter::setNeuralNetworkOutputIndices)
         .def("clearNeuralNetworkLayers", &dna::MachineLearnedBehaviorWriter::clearNeuralNetworkLayers)
-        .def(
-            "setNeuralNetworkLayerActivationFunction",
-            &dna::MachineLearnedBehaviorWriter::setNeuralNetworkLayerActivationFunction)
+        .def("setNeuralNetworkLayerActivationFunction", &dna::MachineLearnedBehaviorWriter::setNeuralNetworkLayerActivationFunction)
         .def(
             "setNeuralNetworkLayerActivationFunctionParameters",
             &dna::MachineLearnedBehaviorWriter::setNeuralNetworkLayerActivationFunctionParameters)
-        .def(
-            "setNeuralNetworkLayerBiases",
-            &dna::MachineLearnedBehaviorWriter::setNeuralNetworkLayerBiases)
-        .def(
-            "setNeuralNetworkLayerWeights",
-            &dna::MachineLearnedBehaviorWriter::setNeuralNetworkLayerWeights);
+        .def("setNeuralNetworkLayerBiases", &dna::MachineLearnedBehaviorWriter::setNeuralNetworkLayerBiases)
+        .def("setNeuralNetworkLayerWeights", &dna::MachineLearnedBehaviorWriter::setNeuralNetworkLayerWeights);
 
-    py::class_<
-        dna::JointBehaviorMetadataReader,
-        dna::DefinitionReader,
-        std::unique_ptr<dna::JointBehaviorMetadataReader, py::nodelete>>(
+    py::class_<dna::JointBehaviorMetadataReader, dna::DefinitionReader, std::unique_ptr<dna::JointBehaviorMetadataReader, py::nodelete>>(
         rlpy, "JointBehaviorMetadataReader")
-        .def(
-            "getJointTranslationRepresentation",
-            &dna::JointBehaviorMetadataReader::getJointTranslationRepresentation)
-        .def(
-            "getJointRotationRepresentation",
-            &dna::JointBehaviorMetadataReader::getJointRotationRepresentation)
-        .def(
-            "getJointScaleRepresentation",
-            &dna::JointBehaviorMetadataReader::getJointScaleRepresentation);
+        .def("getJointTranslationRepresentation", &dna::JointBehaviorMetadataReader::getJointTranslationRepresentation)
+        .def("getJointRotationRepresentation", &dna::JointBehaviorMetadataReader::getJointRotationRepresentation)
+        .def("getJointScaleRepresentation", &dna::JointBehaviorMetadataReader::getJointScaleRepresentation);
 
-    py::class_<
-        dna::JointBehaviorMetadataWriter,
-        dna::DefinitionWriter,
-        std::unique_ptr<dna::JointBehaviorMetadataWriter, py::nodelete>>(
+    py::class_<dna::JointBehaviorMetadataWriter, dna::DefinitionWriter, std::unique_ptr<dna::JointBehaviorMetadataWriter, py::nodelete>>(
         rlpy, "JointBehaviorMetadataWriter")
         .def("clearJointRepresentations", &dna::JointBehaviorMetadataWriter::clearJointRepresentations)
-        .def(
-            "setJointTranslationRepresentation",
-            &dna::JointBehaviorMetadataWriter::setJointTranslationRepresentation)
-        .def(
-            "setJointRotationRepresentation",
-            &dna::JointBehaviorMetadataWriter::setJointRotationRepresentation)
-        .def(
-            "setJointScaleRepresentation",
-            &dna::JointBehaviorMetadataWriter::setJointScaleRepresentation);
+        .def("setJointTranslationRepresentation", &dna::JointBehaviorMetadataWriter::setJointTranslationRepresentation)
+        .def("setJointRotationRepresentation", &dna::JointBehaviorMetadataWriter::setJointRotationRepresentation)
+        .def("setJointScaleRepresentation", &dna::JointBehaviorMetadataWriter::setJointScaleRepresentation);
 
-    py::class_<
-        dna::TwistSwingBehaviorReader,
-        dna::DefinitionReader,
-        std::unique_ptr<dna::TwistSwingBehaviorReader, py::nodelete>>(rlpy, "TwistSwingBehaviorReader")
+    py::class_<dna::TwistSwingBehaviorReader, dna::DefinitionReader, std::unique_ptr<dna::TwistSwingBehaviorReader, py::nodelete>>(
+        rlpy, "TwistSwingBehaviorReader")
         .def("getTwistCount", &dna::TwistSwingBehaviorReader::getTwistCount)
         .def("getTwistSetupTwistAxis", &dna::TwistSwingBehaviorReader::getTwistSetupTwistAxis)
         .def("getTwistInputControlIndices", &dna::TwistSwingBehaviorReader::getTwistInputControlIndices)
@@ -534,10 +458,8 @@ PYBIND11_MODULE(PyRigLogic, rlpy)
         .def("getSwingOutputJointIndices", &dna::TwistSwingBehaviorReader::getSwingOutputJointIndices)
         .def("getSwingBlendWeights", &dna::TwistSwingBehaviorReader::getSwingBlendWeights);
 
-    py::class_<
-        dna::TwistSwingBehaviorWriter,
-        dna::DefinitionWriter,
-        std::unique_ptr<dna::TwistSwingBehaviorWriter, py::nodelete>>(rlpy, "TwistSwingBehaviorWriter")
+    py::class_<dna::TwistSwingBehaviorWriter, dna::DefinitionWriter, std::unique_ptr<dna::TwistSwingBehaviorWriter, py::nodelete>>(
+        rlpy, "TwistSwingBehaviorWriter")
         .def("clearTwists", &dna::TwistSwingBehaviorWriter::clearTwists)
         .def("deleteTwist", &dna::TwistSwingBehaviorWriter::deleteTwist)
         .def("setTwistSetupTwistAxis", &dna::TwistSwingBehaviorWriter::setTwistSetupTwistAxis)
@@ -570,262 +492,260 @@ PYBIND11_MODULE(PyRigLogic, rlpy)
         std::unique_ptr<dna::Writer, py::nodelete>>(rlpy, "Writer")
         .def("setFrom", &dna::Writer::setFrom);
 
-    py::class_<dna::StreamReader, dna::Reader>(rlpy, "StreamReader")
-        .def("read", &dna::StreamReader::read);
+    py::class_<dna::StreamReader, dna::Reader>(rlpy, "StreamReader").def("read", &dna::StreamReader::read);
 
-    py::class_<dna::StreamWriter, dna::Writer>(rlpy, "StreamWriter")
-        .def("write", &dna::StreamWriter::write);
+    py::class_<dna::StreamWriter, dna::Writer>(rlpy, "StreamWriter").def("write", &dna::StreamWriter::write);
 
-    auto pyAccessMode = py::enum_<trio::AccessMode>(rlpy, "AccessMode")
-                            .value("Read", trio::AccessMode::Read)
-                            .value("Write", trio::AccessMode::Write)
-                            .value("ReadWrite", trio::AccessMode::ReadWrite)
-                            .export_values();
-
-    auto pyOpenMode = py::enum_<trio::OpenMode>(rlpy, "OpenMode")
-                          .value("Binary", trio::OpenMode::Binary)
-                          .value("Text", trio::OpenMode::Text)
-                          .export_values();
-
-    auto pyBoundedIOStream = py::class_<BoundedIOStream>(rlpy, "BoundedIOStream");
-    pyBoundedIOStream.attr("AccessMode") = pyAccessMode;
-    pyBoundedIOStream.attr("OpenMode") = pyOpenMode;
-
-    auto pyMemoryResource = py::class_<MemoryResource>(rlpy, "MemoryResource");
-
-    py::class_<
-        dna::BinaryStreamReader,
-        dna::StreamReader,
-        std::unique_ptr<dna::BinaryStreamReader, Deleter<dna::BinaryStreamReader>>>(
+    py::class_<dna::BinaryStreamReader, dna::StreamReader, std::unique_ptr<dna::BinaryStreamReader, Deleter<dna::BinaryStreamReader>>>(
         rlpy, "BinaryStreamReader")
         .def(
-            py::init(
-                static_cast<BinaryStreamReader* (*)(BoundedIOStream*,
-                                                    DataLayer,
-                                                    UnknownLayerPolicy,
-                                                    std::uint16_t,
-                                                    MemoryResource*)>(&BinaryStreamReader::create)),
+            py::init(static_cast<
+                     dna::BinaryStreamReader* (*)(trio::BoundedIOStream*, dna::DataLayer, dna::UnknownLayerPolicy, std::uint16_t, pma::MemoryResource*)>(
+                &dna::BinaryStreamReader::create)),
             py::keep_alive<1, 2>(),
             py::arg("stream"),
-            py::arg("layer") = DataLayer::All,
-            py::arg("policy") = UnknownLayerPolicy::Preserve,
+            py::arg("layer") = dna::DataLayer::All,
+            py::arg("policy") = dna::UnknownLayerPolicy::Preserve,
             py::arg("maxLOD") = 0u,
-            py::arg("memRes") = (dna::MemoryResource*)nullptr)
+            py::arg("memRes") = (pma::MemoryResource*)nullptr)
         .def(
-            py::init(
-                static_cast<BinaryStreamReader* (*)(BoundedIOStream*,
-                                                    DataLayer,
-                                                    UnknownLayerPolicy,
-                                                    std::uint16_t,
-                                                    std::uint16_t,
-                                                    MemoryResource*)>(&BinaryStreamReader::create)),
+            py::init(static_cast<dna::BinaryStreamReader* (*)(trio::BoundedIOStream*,
+                                                              dna::DataLayer,
+                                                              dna::UnknownLayerPolicy,
+                                                              std::uint16_t,
+                                                              std::uint16_t,
+                                                              pma::MemoryResource*)>(&dna::BinaryStreamReader::create)),
             py::keep_alive<1, 2>(),
             py::arg("stream"),
             py::arg("layer"),
             py::arg("policy"),
             py::arg("lods"),
             py::arg("lodCount"),
-            py::arg("memRes") = (dna::MemoryResource*)nullptr);
+            py::arg("memRes") = (pma::MemoryResource*)nullptr);
 
-    py::class_<
-        dna::JSONStreamWriter,
-        dna::StreamWriter,
-        std::unique_ptr<dna::JSONStreamWriter, Deleter<dna::JSONStreamWriter>>>(
+    py::class_<dna::BinaryStreamWriter, dna::StreamWriter, std::unique_ptr<dna::BinaryStreamWriter, Deleter<dna::BinaryStreamWriter>>>(
+        rlpy, "BinaryStreamWriter")
+        .def(
+            py::init(&dna::BinaryStreamWriter::create),
+            py::keep_alive<1, 2>(),
+            py::arg("stream"),
+            py::arg("memRes") = (pma::MemoryResource*)nullptr);
+
+    py::class_<dna::JSONStreamWriter, dna::StreamWriter, std::unique_ptr<dna::JSONStreamWriter, Deleter<dna::JSONStreamWriter>>>(
         rlpy, "JSONStreamWriter")
         .def(
             py::init(&dna::JSONStreamWriter::create),
             py::keep_alive<1, 2>(),
             py::arg("stream"),
             py::arg("indentWidth") = 4u,
-            py::arg("memRes") = (dna::MemoryResource*)nullptr)
+            py::arg("memRes") = (pma::MemoryResource*)nullptr)
         .def(
             "setFrom",
             static_cast<void (dna::JSONStreamWriter::*)(
-                const BinaryStreamReader*, DataLayer, UnknownLayerPolicy, MemoryResource*)>(
+                const dna::BinaryStreamReader*, dna::DataLayer, dna::UnknownLayerPolicy, pma::MemoryResource*)>(
                 &dna::JSONStreamWriter::setFrom),
             py::arg("source"),
-            py::arg("layer") = DataLayer::All,
-            py::arg("policy") = UnknownLayerPolicy::Preserve,
-            py::arg("memRes") = (dna::MemoryResource*)nullptr)
+            py::arg("layer") = dna::DataLayer::All,
+            py::arg("policy") = dna::UnknownLayerPolicy::Preserve,
+            py::arg("memRes") = (pma::MemoryResource*)nullptr)
         .def(
             "setFrom",
             static_cast<void (dna::JSONStreamWriter::*)(
-                const dna::JSONStreamReader*, DataLayer, UnknownLayerPolicy, MemoryResource*)>(
-                &dna::JSONStreamWriter::setFrom),
+                const dna::JSONStreamReader*, dna::DataLayer, dna::UnknownLayerPolicy, pma::MemoryResource*)>(&dna::JSONStreamWriter::setFrom),
             py::arg("source"),
-            py::arg("layer") = DataLayer::All,
-            py::arg("policy") = UnknownLayerPolicy::Preserve,
-            py::arg("memRes") = (dna::MemoryResource*)nullptr);
+            py::arg("layer") = dna::DataLayer::All,
+            py::arg("policy") = dna::UnknownLayerPolicy::Preserve,
+            py::arg("memRes") = (pma::MemoryResource*)nullptr);
 
-    auto pyRigLogic =
-        py::class_<RigLogic, std::unique_ptr<RigLogic, Deleter<RigLogic>>>(rlpy, "RigLogic");
-    auto pyRigInstance = py::class_<RigInstance, std::unique_ptr<RigInstance, Deleter<RigInstance>>>(
-        rlpy, "RigInstance");
-    auto pyDefaultMemoryResource =
-        py::class_<DefaultMemoryResource, MemoryResource>(rlpy, "DefaultMemoryResource");
-    auto pyConfiguration = py::class_<Configuration>(rlpy, "Configuration");
-
-    pyDefaultMemoryResource.def(py::init<>());
-
-    auto pyFileStream =
-        py::class_<FileStream, BoundedIOStream, std::unique_ptr<FileStream, Deleter<FileStream>>>(
-            rlpy, "FileStream");
-    pyFileStream
+    py::class_<dna::JSONStreamReader, dna::StreamReader, std::unique_ptr<dna::JSONStreamReader, Deleter<dna::JSONStreamReader>>>(
+        rlpy, "JSONStreamReader")
         .def(
-            py::init(&FileStream::create),
+            py::init(&dna::JSONStreamReader::create),
+            py::keep_alive<1, 2>(),
+            py::arg("stream"),
+            py::arg("memRes") = (pma::MemoryResource*)nullptr);
+
+    py::class_<dna::FileStream, trio::BoundedIOStream, std::unique_ptr<dna::FileStream, Deleter<dna::FileStream>>>(rlpy, "FileStream")
+        .def(
+            py::init(&dna::FileStream::create),
             py::keep_alive<1, 5>(),
             py::arg("path"),
             py::arg("accessMode"),
             py::arg("openMode"),
-            py::arg("memRes") = (MemoryResource*)nullptr)
-        .def("open", &FileStream::open)
-        .def("close", &FileStream::close)
-        .def("size", &FileStream::size)
-        .def("read", static_cast<std::size_t (FileStream::*)(char*, std::size_t)>(&FileStream::read))
-        .def(
-            "read",
-            static_cast<std::size_t (FileStream::*)(trio::Writable*, std::size_t)>(&FileStream::read))
-        .def(
-            "write",
-            static_cast<std::size_t (FileStream::*)(char const*, std::size_t)>(&FileStream::write))
-        .def(
-            "write",
-            static_cast<std::size_t (FileStream::*)(trio::Readable*, std::size_t)>(
-                &FileStream::write));
+            py::arg("memRes") = (pma::MemoryResource*)nullptr);
 
-    py::enum_<CalculationType>(rlpy, "CalculationType")
-        .value("Scalar", CalculationType::Scalar)
-        .value("SSE", CalculationType::SSE)
-        .value("AVX", CalculationType::AVX)
-        .value("NEON", CalculationType::NEON)
-        .value("AnyVector", CalculationType::AnyVector)
+    // ****************************************** RL4 ***************************************************
+
+    using ConstArrayViewFloat = rl4::ConstArrayView<float>;
+    py::class_<ConstArrayViewFloat>(rlpy, "ArrayViewConstFloat", py::buffer_protocol())
+        .def(
+            "__getitem__",
+            [](const ConstArrayViewFloat& self, std::size_t i)
+            {
+                if (i >= self.size())
+                    throw py::index_error();
+                return self[i];
+            })
+        .def("__len__", &ConstArrayViewFloat::size)
+        .def(
+            "data",
+            [](ConstArrayViewFloat& self) { return py::array_t<float const>({self.size()}, {sizeof(float)}, self.data()); },
+            py::return_value_policy::reference_internal);
+
+    using ArrayViewFloat = rl4::ArrayView<float>;
+    py::class_<ArrayViewFloat>(rlpy, "ArrayViewFloat", py::buffer_protocol())
+        .def(
+            "__getitem__",
+            [](const ArrayViewFloat& self, std::size_t i)
+            {
+                if (i >= self.size())
+                    throw py::index_error();
+                return self[i];
+            })
+        .def("__len__", &ArrayViewFloat::size)
+        .def(
+            "data",
+            [](ArrayViewFloat& self) { return py::array_t<float const>({self.size()}, {sizeof(float)}, self.data()); },
+            py::return_value_policy::reference_internal);
+
+    py::enum_<rl4::CalculationType>(rlpy, "CalculationType")
+        .value("Scalar", rl4::CalculationType::Scalar)
+        .value("SSE", rl4::CalculationType::SSE)
+        .value("AVX", rl4::CalculationType::AVX)
+        .value("NEON", rl4::CalculationType::NEON)
+        .value("AnyVector", rl4::CalculationType::AnyVector)
         .export_values();
 
-    py::enum_<TranslationType>(rlpy, "TranslationType")
-        .value("Vector", TranslationType::Vector)
+    py::enum_<rl4::TranslationType>(rlpy, "TranslationType").value("Vector", rl4::TranslationType::Vector).export_values();
+
+    py::enum_<rl4::RotationType>(rlpy, "RotationType")
+        .value("EulerAngles", rl4::RotationType::EulerAngles)
+        .value("Quaternions", rl4::RotationType::Quaternions)
         .export_values();
 
-    py::enum_<RotationType>(rlpy, "RotationType")
-        .value("EulerAngles", RotationType::EulerAngles)
-        .value("Quaternions", RotationType::Quaternions)
+    py::enum_<rl4::RotationOrder>(rlpy, "RotationOrder")
+        .value("XYZ", rl4::RotationOrder::XYZ)
+        .value("XZY", rl4::RotationOrder::XZY)
+        .value("YXZ", rl4::RotationOrder::YXZ)
+        .value("YZX", rl4::RotationOrder::YZX)
+        .value("ZXY", rl4::RotationOrder::ZXY)
+        .value("ZYX", rl4::RotationOrder::ZYX)
         .export_values();
 
-    py::enum_<RotationOrder>(rlpy, "RotationOrder")
-        .value("XYZ", RotationOrder::XYZ)
-        .value("XZY", RotationOrder::XZY)
-        .value("YXZ", RotationOrder::YXZ)
-        .value("YZX", RotationOrder::YZX)
-        .value("ZXY", RotationOrder::ZXY)
-        .value("ZYX", RotationOrder::ZYX)
-        .export_values();
+    py::enum_<rl4::ScaleType>(rlpy, "ScaleType").value("Vector", rl4::ScaleType::Vector).export_values();
 
-    pyConfiguration.def(py::init<>())
-        .def_readwrite("calculationType", &Configuration::calculationType)
-        .def_readwrite("loadJoints", &Configuration::loadJoints)
-        .def_readwrite("loadBlendShapes", &Configuration::loadBlendShapes)
-        .def_readwrite("loadAnimatedMaps", &Configuration::loadAnimatedMaps)
-        .def_readwrite("loadMachineLearnedBehavior", &Configuration::loadMachineLearnedBehavior)
-        .def_readwrite("loadRBFBehavior", &Configuration::loadRBFBehavior)
-        .def_readwrite("loadTwistSwingBehavior", &Configuration::loadTwistSwingBehavior)
-        .def_readwrite("translationType", &Configuration::translationType)
-        .def_readwrite("rotationType", &Configuration::rotationType)
-        .def_readwrite("rotationOrder", &Configuration::rotationOrder)
-        .def_readwrite("scaleType", &Configuration::scaleType);
+    py::class_<rl4::Configuration>(rlpy, "Configuration")
+        .def(py::init<>())
+        .def_readwrite("calculationType", &rl4::Configuration::calculationType)
+        .def_readwrite("loadJoints", &rl4::Configuration::loadJoints)
+        .def_readwrite("loadBlendShapes", &rl4::Configuration::loadBlendShapes)
+        .def_readwrite("loadAnimatedMaps", &rl4::Configuration::loadAnimatedMaps)
+        .def_readwrite("loadMachineLearnedBehavior", &rl4::Configuration::loadMachineLearnedBehavior)
+        .def_readwrite("loadRBFBehavior", &rl4::Configuration::loadRBFBehavior)
+        .def_readwrite("loadTwistSwingBehavior", &rl4::Configuration::loadTwistSwingBehavior)
+        .def_readwrite("translationType", &rl4::Configuration::translationType)
+        .def_readwrite("rotationType", &rl4::Configuration::rotationType)
+        .def_readwrite("rotationOrder", &rl4::Configuration::rotationOrder)
+        .def_readwrite("scaleType", &rl4::Configuration::scaleType);
 
-    py::enum_<ScaleType>(rlpy, "ScaleType").value("Vector", ScaleType::Vector).export_values();
-
-    pyRigLogic
+    py::class_<rl4::RigLogic, std::unique_ptr<rl4::RigLogic, Deleter<rl4::RigLogic>>>(rlpy, "RigLogic")
         .def(
-            py::init(&RigLogic::create),
+            py::init(&rl4::RigLogic::create),
             py::keep_alive<1, 2>(),
             py::arg("reader"),
-            py::arg("config") = Configuration{},
-            py::arg("memRes") = (dna::MemoryResource*)nullptr)
-        // .def_static("destroy", &RigLogic::destroy)
-        .def_static("restore", &RigLogic::restore)
-        .def("dump", &RigLogic::dump)
-        .def("getLODCount", &RigLogic::getLODCount)
-        .def("getNeutralJointValues", &RigLogic::getNeutralJointValues)
-        .def("getJointVariableAttributeIndices", &RigLogic::getJointVariableAttributeIndices)
-        .def("getJointGroupCount", &RigLogic::getJointGroupCount)
-        .def("getNeuralNetworkCount", &RigLogic::getNeuralNetworkCount)
-        .def("getRBFSolverCount", &RigLogic::getRBFSolverCount)
-        .def("getMeshCount", &RigLogic::getMeshCount)
-        .def("getMeshRegionCount", &RigLogic::getMeshRegionCount)
-        .def("getNeuralNetworkIndices", &RigLogic::getNeuralNetworkIndices)
-        .def("mapGUIToRawControls", &RigLogic::mapGUIToRawControls)
-        .def("mapRawToGUIControls", &RigLogic::mapRawToGUIControls)
-        .def("calculateControls", &RigLogic::calculateControls)
+            py::arg("config") = rl4::Configuration{},
+            py::arg("memRes") = (pma::MemoryResource*)nullptr)
+        .def_static("restore", &rl4::RigLogic::restore)
+        .def("dump", &rl4::RigLogic::dump)
+        .def("getLODCount", &rl4::RigLogic::getLODCount)
+        .def("getNeutralJointValues", &rl4::RigLogic::getNeutralJointValues)
+        .def("getJointVariableAttributeIndices", &rl4::RigLogic::getJointVariableAttributeIndices)
+        .def("getJointGroupCount", &rl4::RigLogic::getJointGroupCount)
+        .def("getNeuralNetworkCount", &rl4::RigLogic::getNeuralNetworkCount)
+        .def("getRBFSolverCount", &rl4::RigLogic::getRBFSolverCount)
+        .def("getMeshCount", &rl4::RigLogic::getMeshCount)
+        .def("getMeshRegionCount", &rl4::RigLogic::getMeshRegionCount)
+        .def("getNeuralNetworkIndices", &rl4::RigLogic::getNeuralNetworkIndices)
+        .def("mapGUIToRawControls", &rl4::RigLogic::mapGUIToRawControls)
+        .def("mapRawToGUIControls", &rl4::RigLogic::mapRawToGUIControls)
+        .def("calculateControls", &rl4::RigLogic::calculateControls)
         .def(
             "calculateMachineLearnedBehaviorControls",
-            static_cast<void (RigLogic::*)(RigInstance*) const>(
-                &RigLogic::calculateMachineLearnedBehaviorControls))
+            static_cast<void (rl4::RigLogic::*)(rl4::RigInstance*) const>(&rl4::RigLogic::calculateMachineLearnedBehaviorControls))
         .def(
             "calculateMachineLearnedBehaviorControls",
-            static_cast<void (RigLogic::*)(RigInstance*, std::uint16_t) const>(
-                &RigLogic::calculateMachineLearnedBehaviorControls))
+            static_cast<void (rl4::RigLogic::*)(rl4::RigInstance*, std::uint16_t) const>(
+                &rl4::RigLogic::calculateMachineLearnedBehaviorControls))
+        .def("calculateRBFControls", static_cast<void (rl4::RigLogic::*)(rl4::RigInstance*) const>(&rl4::RigLogic::calculateRBFControls))
         .def(
             "calculateRBFControls",
-            static_cast<void (RigLogic::*)(RigInstance*) const>(&RigLogic::calculateRBFControls))
+            static_cast<void (rl4::RigLogic::*)(rl4::RigInstance*, std::uint16_t) const>(&rl4::RigLogic::calculateRBFControls))
+        .def("calculateJoints", static_cast<void (rl4::RigLogic::*)(rl4::RigInstance*) const>(&rl4::RigLogic::calculateJoints))
+        .def("calculateJoints", static_cast<void (rl4::RigLogic::*)(rl4::RigInstance*, std::uint16_t) const>(&rl4::RigLogic::calculateJoints))
+        .def("calculateBlendShapes", &rl4::RigLogic::calculateBlendShapes)
+        .def("calculateAnimatedMaps", &rl4::RigLogic::calculateAnimatedMaps)
+        .def("calculate", &rl4::RigLogic::calculate);
+
+    py::class_<rl4::RigInstance, std::unique_ptr<rl4::RigInstance, Deleter<rl4::RigInstance>>>(rlpy, "RigInstance")
+        .def(py::init(&rl4::RigInstance::create), py::keep_alive<1, 2>(), py::arg("rigLogic"), py::arg("memRes") = (pma::MemoryResource*)nullptr)
+
+        .def("getGUIControlCount", &rl4::RigInstance::getGUIControlCount)
+        .def("getGUIControl", &rl4::RigInstance::getGUIControl)
+        .def("setGUIControl", &rl4::RigInstance::setGUIControl)
+        .def("getGUIControlValues", &rl4::RigInstance::getGUIControlValues)
         .def(
-            "calculateRBFControls",
-            static_cast<void (RigLogic::*)(RigInstance*, std::uint16_t) const>(
-                &RigLogic::calculateRBFControls))
+            "setGUIControlValues",
+            [](rl4::RigInstance* ri, std::vector<float> input_array)
+            {
+                if (input_array.size() != ri->getGUIControlCount())
+                {
+                    throw py::value_error("setGUIControlValues() expect an array of size equal to "
+                                          "getGUIControlCount()");
+                }
+                ri->setGUIControlValues(input_array.data());
+            })
+
+        .def("getRawControlCount", &rl4::RigInstance::getRawControlCount)
+        .def("getRawControl", &rl4::RigInstance::getRawControl)
+        .def("setRawControl", &rl4::RigInstance::setRawControl)
+        .def("getRawControlValues", &rl4::RigInstance::getRawControlValues)
         .def(
-            "calculateJoints",
-            static_cast<void (RigLogic::*)(RigInstance*) const>(&RigLogic::calculateJoints))
-        .def(
-            "calculateJoints",
-            static_cast<void (RigLogic::*)(RigInstance*, std::uint16_t) const>(
-                &RigLogic::calculateJoints))
-        .def("calculateBlendShapes", &RigLogic::calculateBlendShapes)
-        .def("calculateAnimatedMaps", &RigLogic::calculateAnimatedMaps)
-        .def("calculate", &RigLogic::calculate);
+            "setRawControlValues",
+            [](rl4::RigInstance* ri, std::vector<float> input_array)
+            {
+                if (input_array.size() != ri->getRawControlCount())
+                {
+                    throw py::value_error("setRawControlValues() expect an array of size equal to "
+                                          "getRawControlCount()");
+                }
+                ri->setRawControlValues(input_array.data());
+            })
 
-    pyRigInstance
-        .def(
-            py::init(&RigInstance::create),
-            py::keep_alive<1, 2>(),
-            py::arg("rigLogic"),
-            py::arg("memRes") = (dna::MemoryResource*)nullptr)
+        .def("getPSDControlCount", &rl4::RigInstance::getPSDControlCount)
+        .def("getPSDControl", &rl4::RigInstance::getPSDControl)
+        .def("getPSDControlValues", &rl4::RigInstance::getPSDControlValues)
 
-        .def("getGUIControlCount", &RigInstance::getGUIControlCount)
-        .def("getGUIControl", &RigInstance::getGUIControl)
-        .def("setGUIControl", &RigInstance::setGUIControl)
-        .def("getGUIControlValues", &RigInstance::getGUIControlValues)
-        .def("setGUIControlValues", &RigInstance::setGUIControlValues)
+        .def("getMLControlCount", &rl4::RigInstance::getMLControlCount)
+        .def("getMLControl", &rl4::RigInstance::getMLControl)
+        .def("getMLControlValues", &rl4::RigInstance::getMLControlValues)
 
-        .def("getRawControlCount", &RigInstance::getRawControlCount)
-        .def("getRawControl", &RigInstance::getRawControl)
-        .def("setRawControl", &RigInstance::setRawControl)
-        .def("getRawControlValues", &RigInstance::getRawControlValues)
-        .def("setRawControlValues", &RigInstance::setRawControlValues)
+        .def("getNeuralNetworkCount", &rl4::RigInstance::getNeuralNetworkCount)
+        .def("getNeuralNetworkMask", &rl4::RigInstance::getNeuralNetworkMask)
+        .def("setNeuralNetworkMask", &rl4::RigInstance::setNeuralNetworkMask)
 
-        .def("getPSDControlCount", &RigInstance::getPSDControlCount)
-        .def("getPSDControl", &RigInstance::getPSDControl)
-        .def("getPSDControlValues", &RigInstance::getPSDControlValues)
+        .def("getRBFControlCount", &rl4::RigInstance::getRBFControlCount)
+        .def("getRBFControl", &rl4::RigInstance::getRBFControl)
+        .def("getRBFControlValues", &rl4::RigInstance::getRBFControlValues)
 
-        .def("getMLControlCount", &RigInstance::getMLControlCount)
-        .def("getMLControl", &RigInstance::getMLControl)
-        .def("getMLControlValues", &RigInstance::getMLControlValues)
+        .def("getJointOutputs", &rl4::RigInstance::getJointOutputs)
 
-        .def("getNeuralNetworkCount", &RigInstance::getNeuralNetworkCount)
-        .def("getNeuralNetworkMask", &RigInstance::getNeuralNetworkMask)
-        .def("setNeuralNetworkMask", &RigInstance::setNeuralNetworkMask)
+        .def("getBlendShapeOutputs", &rl4::RigInstance::getBlendShapeOutputs)
 
-        .def("getRBFControlCount", &RigInstance::getRBFControlCount)
-        .def("getRBFControl", &RigInstance::getRBFControl)
-        .def("getRBFControlValues", &RigInstance::getRBFControlValues)
+        .def("getAnimatedMapOutputs", &rl4::RigInstance::getAnimatedMapOutputs)
 
-        .def("getJointOutputs", &RigInstance::getJointOutputs)
+        .def("getRBFControlVgetLODalues", &rl4::RigInstance::getLOD)
 
-        .def("getBlendShapeOutputs", &RigInstance::getBlendShapeOutputs)
-
-        .def("getAnimatedMapOutputs", &RigInstance::getAnimatedMapOutputs)
-
-        .def("getRBFControlVgetLODalues", &RigInstance::getLOD)
-
-        .def("setLOD", &RigInstance::setLOD);
+        .def("setLOD", &rl4::RigInstance::setLOD);
 }
 
 // clang-format on
