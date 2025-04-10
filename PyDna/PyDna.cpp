@@ -50,6 +50,99 @@ PYBIND11_MODULE(pydna, rlpy)
         .def_static("getHook", &sc::Status::getHook)
         .def_static("setHook", &sc::Status::setHook);
 
+    // *********************************************** av ***********************************************
+
+    using ConstArrayViewFloat = av::ConstArrayView<float>;
+    py::class_<ConstArrayViewFloat>(rlpy, "ArrayViewConstFloat", py::buffer_protocol())
+        .def(
+            "__getitem__",
+            [](const ConstArrayViewFloat& self, std::size_t i)
+            {
+                if (i >= self.size())
+                    throw py::index_error();
+                return self[i];
+            })
+        .def(
+            "__getitem__",
+            [](const ConstArrayViewFloat& self, py::slice slice)
+            {
+                py::ssize_t start, stop, step, slice_length;
+                if (!slice.compute(self.size(), &start, &stop, &step, &slice_length))
+                    throw py::error_already_set(); // Gestion d'erreur interne Pybind11
+                return self.subview(start, stop);
+            })
+        .def("__len__", &ConstArrayViewFloat::size)
+        .def(
+            "data",
+            [](ConstArrayViewFloat& self) { return py::array_t<float const>({self.size()}, {sizeof(float)}, self.data()); },
+            py::return_value_policy::reference_internal);
+
+    using ArrayViewFloat = av::ArrayView<float>;
+    py::class_<ArrayViewFloat>(rlpy, "ArrayViewFloat", py::buffer_protocol())
+        .def(
+            "__getitem__",
+            [](const ArrayViewFloat& self, std::size_t i)
+            {
+                if (i >= self.size())
+                    throw py::index_error();
+                return self[i];
+            })
+        .def(
+            "__getitem__",
+            [](const ArrayViewFloat& self, py::slice slice)
+            {
+                py::ssize_t start, stop, step, slice_length;
+                if (!slice.compute(self.size(), &start, &stop, &step, &slice_length))
+                    throw py::error_already_set(); // Gestion d'erreur interne Pybind11
+                return self.subview(start, stop);
+            })
+        .def("__len__", &ArrayViewFloat::size)
+        .def(
+            "data",
+            [](ArrayViewFloat& self) { return py::array_t<float const>({self.size()}, {sizeof(float)}, self.data()); },
+            py::return_value_policy::reference_internal);
+
+    using ConstArrayViewInt = av::ConstArrayView<std::uint32_t>;
+    py::class_<ConstArrayViewInt>(rlpy, "ConstArrayViewInt", py::buffer_protocol())
+        .def(
+            "__getitem__",
+            [](const ConstArrayViewInt& self, std::size_t i)
+            {
+                if (i >= self.size())
+                    throw py::index_error();
+                return self[i];
+            })
+        .def(
+            "__getitem__",
+            [](const ConstArrayViewInt& self, py::slice slice)
+            {
+                py::ssize_t start, stop, step, slice_length;
+                if (!slice.compute(self.size(), &start, &stop, &step, &slice_length))
+                    throw py::error_already_set(); // Gestion d'erreur interne Pybind11
+                return self.subview(start, stop);
+            })
+        .def("__len__", &ConstArrayViewInt::size)
+        .def(
+            "data",
+            [](ConstArrayViewInt& self) { return py::array_t<std::uint32_t const>({self.size()}, {sizeof(std::uint32_t)}, self.data()); },
+            py::return_value_policy::reference_internal);
+
+    using ConstArrayViewShort = av::ConstArrayView<std::uint16_t>;
+    py::class_<ConstArrayViewShort>(rlpy, "ConstArrayViewShort", py::buffer_protocol())
+        .def(
+            "__getitem__",
+            [](const ConstArrayViewShort& self, std::size_t i)
+            {
+                if (i >= self.size())
+                    throw py::index_error();
+                return self[i];
+            })
+        .def("__len__", &ConstArrayViewShort::size)
+        .def(
+            "data",
+            [](ConstArrayViewShort& self) { return py::array_t<std::uint16_t const>({self.size()}, {sizeof(std::uint16_t)}, self.data()); },
+            py::return_value_policy::reference_internal);
+
     // ************************************ PMA *********************************************************
 
     py::class_<pma::MemoryResource>(rlpy, "MemoryResource")
@@ -107,6 +200,19 @@ PYBIND11_MODULE(pydna, rlpy)
         .value("Ignore", dna::UnknownLayerPolicy::Ignore)
         .export_values();
 
+    py::class_<dna::MeshBlendShapeChannelMapping>(rlpy, "MeshBlendShapeChannelMapping")
+        .def_readwrite("meshIndex", &dna::MeshBlendShapeChannelMapping::meshIndex)
+        .def_readwrite("blendShapeChannelIndex", &dna::MeshBlendShapeChannelMapping::blendShapeChannelIndex);
+
+    py::class_<dna::TextureCoordinate>(rlpy, "TextureCoordinate")
+        .def_readwrite("u", &dna::TextureCoordinate::u)
+        .def_readwrite("v", &dna::TextureCoordinate::v);
+
+    py::class_<dna::VertexLayout>(rlpy, "VertexLayout")
+        .def_readwrite("position", &dna::VertexLayout::position)
+        .def_readwrite("textureCoordinate", &dna::VertexLayout::textureCoordinate)
+        .def_readwrite("normal", &dna::VertexLayout::normal);
+
     py::class_<dna::HeaderReader, std::unique_ptr<dna::HeaderReader, py::nodelete>>(rlpy, "HeaderReader")
         .def("getFileFormatGeneration", &dna::HeaderReader::getFileFormatGeneration)
         .def("getFileFormatVersion", &dna::HeaderReader::getFileFormatVersion);
@@ -145,6 +251,20 @@ PYBIND11_MODULE(pydna, rlpy)
         .def("setDBMaxLOD", &dna::DescriptorWriter::setDBMaxLOD)
         .def("setDBComplexity", &dna::DescriptorWriter::setDBComplexity)
         .def("setDBName", &dna::DescriptorWriter::setDBName);
+
+    py::class_<dna::Vector3>(rlpy, "Vector3")
+        .def(py::init<>())
+        .def_readwrite("x", &dna::Vector3::x)
+        .def_readwrite("y", &dna::Vector3::y)
+        .def_readwrite("z", &dna::Vector3::z)
+        .def(
+            "__getitem__",
+            [](const dna::Vector3& self, std::size_t i)
+            {
+                if (i > 2)
+                    throw py::index_error();
+                return i == 0 ? self.x : i == 1 ? self.y : self.z;
+            });
 
     py::class_<dna::DefinitionReader, dna::DescriptorReader, std::unique_ptr<dna::DefinitionReader, py::nodelete>>(rlpy, "DefinitionReader")
         .def("getGUIControlCount", &dna::DefinitionReader::getGUIControlCount)
@@ -332,38 +452,39 @@ PYBIND11_MODULE(pydna, rlpy)
         .def("setRBFSolverTwistAxis", &dna::RBFBehaviorWriter::setRBFSolverTwistAxis);
 
     py::class_<dna::GeometryReader, dna::DefinitionReader, std::unique_ptr<dna::GeometryReader, py::nodelete>>(rlpy, "GeometryReader")
-        .def("getVertexPositionCount", &dna::GeometryReader::getVertexPositionCount)
-        .def("getVertexPosition", &dna::GeometryReader::getVertexPosition)
-        .def("getVertexPositionXs", &dna::GeometryReader::getVertexPositionXs)
-        .def("getVertexPositionYs", &dna::GeometryReader::getVertexPositionYs)
-        .def("getVertexPositionZs", &dna::GeometryReader::getVertexPositionZs)
-        .def("getVertexTextureCoordinateCount", &dna::GeometryReader::getVertexTextureCoordinateCount)
-        .def("getVertexTextureCoordinate", &dna::GeometryReader::getVertexTextureCoordinate)
-        .def("getVertexTextureCoordinateUs", &dna::GeometryReader::getVertexTextureCoordinateUs)
-        .def("getVertexTextureCoordinateVs", &dna::GeometryReader::getVertexTextureCoordinateVs)
-        .def("getVertexNormalCount", &dna::GeometryReader::getVertexNormalCount)
-        .def("getVertexNormal", &dna::GeometryReader::getVertexNormal)
-        .def("getVertexNormalXs", &dna::GeometryReader::getVertexNormalXs)
-        .def("getVertexNormalYs", &dna::GeometryReader::getVertexNormalYs)
-        .def("getVertexNormalZs", &dna::GeometryReader::getVertexNormalZs)
-        .def("getVertexLayoutCount", &dna::GeometryReader::getVertexLayoutCount)
-        .def("getVertexLayout", &dna::GeometryReader::getVertexLayout)
-        .def("getVertexLayoutPositionIndices", &dna::GeometryReader::getVertexLayoutPositionIndices)
-        .def("getVertexLayoutTextureCoordinateIndices", &dna::GeometryReader::getVertexLayoutTextureCoordinateIndices)
-        .def("getVertexLayoutNormalIndices", &dna::GeometryReader::getVertexLayoutNormalIndices)
-        .def("getFaceCount", &dna::GeometryReader::getFaceCount)
-        .def("getFaceVertexLayoutIndices", &dna::GeometryReader::getFaceVertexLayoutIndices)
-        .def("getMaximumInfluencePerVertex", &dna::GeometryReader::getMaximumInfluencePerVertex)
-        .def("getSkinWeightsCount", &dna::GeometryReader::getSkinWeightsCount)
-        .def("getSkinWeightsValues", &dna::GeometryReader::getSkinWeightsValues)
-        .def("getSkinWeightsJointIndices", &dna::GeometryReader::getSkinWeightsJointIndices)
-        .def("getBlendShapeTargetCount", &dna::GeometryReader::getBlendShapeTargetCount)
-        .def("getBlendShapeChannelIndex", &dna::GeometryReader::getBlendShapeChannelIndex)
-        .def("getBlendShapeTargetDeltaCount", &dna::GeometryReader::getBlendShapeTargetDeltaCount)
-        .def("getBlendShapeTargetDeltaXs", &dna::GeometryReader::getBlendShapeTargetDeltaXs)
-        .def("getBlendShapeTargetDeltaYs", &dna::GeometryReader::getBlendShapeTargetDeltaYs)
-        .def("getBlendShapeTargetDeltaZs", &dna::GeometryReader::getBlendShapeTargetDeltaZs)
-        .def("getBlendShapeTargetVertexIndices", &dna::GeometryReader::getBlendShapeTargetVertexIndices);
+        .def("getVertexPositionCount", &dna::GeometryReader::getVertexPositionCount, "meshIndex"_a)
+        .def("getVertexPosition", &dna::GeometryReader::getVertexPosition, "meshIndex"_a, "vertexIndex"_a)
+        .def("getVertexPositionXs", &dna::GeometryReader::getVertexPositionXs, "meshIndex"_a)
+        .def("getVertexPositionYs", &dna::GeometryReader::getVertexPositionYs, "meshIndex"_a)
+        .def("getVertexPositionZs", &dna::GeometryReader::getVertexPositionZs, "meshIndex"_a)
+        .def("getVertexTextureCoordinateCount", &dna::GeometryReader::getVertexTextureCoordinateCount, "meshIndex"_a)
+        .def("getVertexTextureCoordinate", &dna::GeometryReader::getVertexTextureCoordinate, "meshIndex"_a, "textureCoordinateIndex"_a)
+        .def("getVertexTextureCoordinateUs", &dna::GeometryReader::getVertexTextureCoordinateUs, "meshIndex"_a)
+        .def("getVertexTextureCoordinateVs", &dna::GeometryReader::getVertexTextureCoordinateVs, "meshIndex"_a)
+        .def("getVertexNormalCount", &dna::GeometryReader::getVertexNormalCount, "meshIndex"_a)
+        .def("getVertexNormal", &dna::GeometryReader::getVertexNormal, "meshIndex"_a, "normalIndex"_a)
+        .def("getVertexNormalXs", &dna::GeometryReader::getVertexNormalXs, "meshIndex"_a)
+        .def("getVertexNormalYs", &dna::GeometryReader::getVertexNormalYs, "meshIndex"_a)
+        .def("getVertexNormalZs", &dna::GeometryReader::getVertexNormalZs, "meshIndex"_a)
+        .def("getVertexLayoutCount", &dna::GeometryReader::getVertexLayoutCount, "meshIndex"_a)
+        .def("getVertexLayout", &dna::GeometryReader::getVertexLayout, "meshIndex"_a, "layoutIndex"_a)
+        .def("getVertexLayoutPositionIndices", &dna::GeometryReader::getVertexLayoutPositionIndices, "meshIndex"_a)
+        .def("getVertexLayoutTextureCoordinateIndices", &dna::GeometryReader::getVertexLayoutTextureCoordinateIndices, "meshIndex"_a)
+        .def("getVertexLayoutNormalIndices", &dna::GeometryReader::getVertexLayoutNormalIndices, "meshIndex"_a)
+        .def("getFaceCount", &dna::GeometryReader::getFaceCount, "meshIndex"_a)
+        .def("getFaceVertexLayoutIndices", &dna::GeometryReader::getFaceVertexLayoutIndices, "meshIndex"_a, "faceIndex"_a)
+        .def("getMaximumInfluencePerVertex", &dna::GeometryReader::getMaximumInfluencePerVertex, "meshIndex"_a)
+        .def("getSkinWeightsCount", &dna::GeometryReader::getSkinWeightsCount, "meshIndex"_a)
+        .def("getSkinWeightsValues", &dna::GeometryReader::getSkinWeightsValues, "meshIndex"_a, "vertexIndex"_a)
+        .def("getSkinWeightsJointIndices", &dna::GeometryReader::getSkinWeightsJointIndices, "meshIndex"_a, "vertexIndex"_a)
+        .def("getBlendShapeTargetCount", &dna::GeometryReader::getBlendShapeTargetCount, "meshIndex"_a)
+        .def("getBlendShapeChannelIndex", &dna::GeometryReader::getBlendShapeChannelIndex, "meshIndex"_a, "blendShapeTargetIndex"_a)
+        .def("getBlendShapeTargetDeltaCount", &dna::GeometryReader::getBlendShapeTargetDeltaCount, "meshIndex"_a, "blendShapeTargetIndex"_a)
+        .def("getBlendShapeTargetDelta", &dna::GeometryReader::getBlendShapeTargetDelta, "meshIndex"_a, "blendShapeTargetIndex"_a, "deltaIndex"_a)
+        .def("getBlendShapeTargetDeltaXs", &dna::GeometryReader::getBlendShapeTargetDeltaXs, "meshIndex"_a, "blendShapeTargetIndex"_a)
+        .def("getBlendShapeTargetDeltaYs", &dna::GeometryReader::getBlendShapeTargetDeltaYs, "meshIndex"_a, "blendShapeTargetIndex"_a)
+        .def("getBlendShapeTargetDeltaZs", &dna::GeometryReader::getBlendShapeTargetDeltaZs, "meshIndex"_a, "blendShapeTargetIndex"_a)
+        .def("getBlendShapeTargetVertexIndices", &dna::GeometryReader::getBlendShapeTargetVertexIndices, "meshIndex"_a, "blendShapeTargetIndex"_a);
 
     py::class_<dna::GeometryWriter, dna::DefinitionWriter, std::unique_ptr<dna::GeometryWriter, py::nodelete>>(rlpy, "GeometryWriter")
         .def("clearMeshes", &dna::GeometryWriter::clearMeshes)

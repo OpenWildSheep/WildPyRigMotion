@@ -18,6 +18,8 @@ using namespace pybind11::literals;
 
 namespace py = pybind11;
 
+#define PYBIND11_DETAILED_ERROR_MESSAGES
+
 namespace pybind11
 {
     namespace detail
@@ -43,38 +45,6 @@ PYBIND11_MODULE(pyriglogic, rlpy)
     rlpy.doc() = "pybind11 for RigLogic";
 
     // ****************************************** RL4 ***************************************************
-
-    using ConstArrayViewFloat = rl4::ConstArrayView<float>;
-    py::class_<ConstArrayViewFloat>(rlpy, "ArrayViewConstFloat", py::buffer_protocol())
-        .def(
-            "__getitem__",
-            [](const ConstArrayViewFloat& self, std::size_t i)
-            {
-                if (i >= self.size())
-                    throw py::index_error();
-                return self[i];
-            })
-        .def("__len__", &ConstArrayViewFloat::size)
-        .def(
-            "data",
-            [](ConstArrayViewFloat& self) { return py::array_t<float const>({self.size()}, {sizeof(float)}, self.data()); },
-            py::return_value_policy::reference_internal);
-
-    using ArrayViewFloat = rl4::ArrayView<float>;
-    py::class_<ArrayViewFloat>(rlpy, "ArrayViewFloat", py::buffer_protocol())
-        .def(
-            "__getitem__",
-            [](const ArrayViewFloat& self, std::size_t i)
-            {
-                if (i >= self.size())
-                    throw py::index_error();
-                return self[i];
-            })
-        .def("__len__", &ArrayViewFloat::size)
-        .def(
-            "data",
-            [](ArrayViewFloat& self) { return py::array_t<float const>({self.size()}, {sizeof(float)}, self.data()); },
-            py::return_value_policy::reference_internal);
 
     py::enum_<rl4::CalculationType>(rlpy, "CalculationType")
         .value("Scalar", rl4::CalculationType::Scalar)
