@@ -39,7 +39,7 @@ cmake -B build -DRIGLOGIC_SOURCE_DIR="path/to/UnrealEngine/Engine/Plugins/Animat
 cmake --build build --config Release
 ```    
 
-⚠️ If you plan to use RigLogic in blender, ensure to use the same python version than your blender.
+⚠️ If you plan to use RigLogic in Blender, ensure to use the same python version than your Blender.
 
 ## 📚 Usage
 
