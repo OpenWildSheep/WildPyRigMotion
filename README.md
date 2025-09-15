@@ -8,8 +8,14 @@ PyRigLogic provides a Python binding for RigLogic. It is designed to be used in 
 
 [**RigLogic**](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Plugins/RigLogicLib/riglogic) is part of [**Unreal Engine**](https://www.unrealengine.com) and [**MetaHuman**](https://www.unrealengine.com/fr/metahuman). It is used to manage advanced character rigs.
 
-⚠️ **PyRigLogic does not contain the source code of RigLogic.**
-You must have installed to the **RigLogic Plugin** ("3Lateral RigLogic Plugin for Facial Animation") in Unreal Engine in order to get the source code of RigLogic.
+⚠️ Important Notice
+
+PyRigLogic does not contain or redistribute the RigLogic source code or binaries.  
+RigLogic is proprietary technology developed by Epic Games as part of Unreal Engine and MetaHuman.  
+To use PyRigLogic, you must already have a valid installation of Unreal Engine with the "3Lateral RigLogic Plugin for Facial Animation" provided by Epic Games, under Epic's own license terms.  
+
+This project is an independent open-source binding.  
+It is not affiliated with, endorsed by, or sponsored by Epic Games.
 
 ### More about metahuman and RigLogic:
 
