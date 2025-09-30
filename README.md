@@ -1,8 +1,8 @@
 
 
-# PyRigLogic
+# WildPyRigMotion
 
-PyRigLogic provides a Python binding for RigLogic. It is designed to be used in python softwares like **Blender**.
+WildPyRigMotion provides a Python binding for RigLogic. It is designed to be used in python softwares like **Blender**.
 
 ## 📖 Overview
 
@@ -10,9 +10,9 @@ PyRigLogic provides a Python binding for RigLogic. It is designed to be used in 
 
 ⚠️ Important Notice
 
-PyRigLogic does not contain or redistribute the RigLogic source code or binaries.  
+WildPyRigMotion does not contain or redistribute the RigLogic source code or binaries.  
 RigLogic is proprietary technology developed by Epic Games as part of Unreal Engine and MetaHuman.  
-To use PyRigLogic, you must already have a valid installation of Unreal Engine with the "3Lateral RigLogic Plugin for Facial Animation" provided by Epic Games, under Epic's own license terms.  
+To use WildPyRigMotion, you must already have a valid installation of Unreal Engine with the "3Lateral RigLogic Plugin for Facial Animation" provided by Epic Games, under Epic's own license terms.  
 
 This project is an independent open-source binding.  
 It is not affiliated with, endorsed by, or sponsored by Epic Games.
@@ -43,7 +43,7 @@ cmake --build build --config Release
 
 ## 📚 Usage
 
-Once PyRigLogic is installed, here is an example of how to use it:
+Once WildPyRigMotion is installed, here is an example of how to use it:
 
 ```python
 from pydna import BinaryStreamReader, FileStream, DataLayer
